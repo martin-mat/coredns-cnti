@@ -1,0 +1,68 @@
+name: CNTi certification
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+  COREDNS_VERSION: "1.14.6"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  cert:
+    name: Build image and run CNTi cert
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Compute image tag
+        id: tag
+        run: |
+          tag="sha-$(git rev-parse --short=12 HEAD)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          # cnti-testsuite.yaml picks the image tag up from the environment
+          echo "COREDNS_IMAGE_TAG=$tag" >> "$GITHUB_ENV"
+      # Built locally and loaded straight into the action's kind cluster:
+      # no registry round trip, and nothing is published before it is certified.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
+          build-args: COREDNS_VERSION=${{ env.COREDNS_VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Run CNTi Test Suite
+        id: cnti
+        uses: lfn-cnti/testsuite-action@v1
+        with:
+          cnf_config: cnti-testsuite.yaml
+          kind_load_images: ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
+          gist_badge_id: ${{ vars.CNTI_BADGE_GIST_ID }}
+          gist_badge_secret: ${{ secrets.CNTI_BADGE }}
+      - name: Require every essential test to pass
+        if: always() && steps.cnti.outputs.essential_passed != ''
+        run: |
+          echo "essential: ${{ steps.cnti.outputs.essential_passed }} / ${{ steps.cnti.outputs.essential_max_passed }}, points: ${{ steps.cnti.outputs.points }} / ${{ steps.cnti.outputs.maximum_points }}"
+          test "${{ steps.cnti.outputs.essential_passed }}" = "${{ steps.cnti.outputs.essential_max_passed }}"
+      # Only a certified image reaches the registry.
+      - name: Log in to GHCR
+        if: github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push certified image
+        if: github.ref == 'refs/heads/main'
+        run: |
+          for t in "${{ steps.tag.outputs.tag }}" "$COREDNS_VERSION" latest; do
+            docker tag "$IMAGE:${{ steps.tag.outputs.tag }}" "$IMAGE:$t"
+            docker push "$IMAGE:$t"
+          done
