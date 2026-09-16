@@ -1,0 +1,6 @@
+# cnti-testsuite workspace (current and older releases)
+cnti/
+results/
+installed_cnf_files/
+cluster_tools.yml
+points.yml

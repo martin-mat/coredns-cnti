@@ -1,0 +1,25 @@
+---
+# CNTi Test Suite configuration: upstream CoreDNS Helm chart with the
+# CNTi-friendly image from this repository and an explicit non-root
+# security context.
+#
+# COREDNS_IMAGE_TAG selects the image tag (CI sets it to the tag it just
+# built); it defaults to the released CoreDNS version.
+config_version: v2
+common:
+  container_names:
+    - name: coredns
+deployments:
+  helm_charts:
+    - name: coredns
+      helm_chart_name: coredns
+      helm_repo_name: coredns
+      helm_repo_url: https://coredns.github.io/helm
+      chart_version: 1.47.0
+      helm_values: >-
+        --set image.repository=ghcr.io/martin-mat/coredns-cnti
+        --set image.tag={{ ENV.COREDNS_IMAGE_TAG | default("1.14.6") }}
+        --set podSecurityContext.runAsNonRoot=true
+        --set podSecurityContext.runAsUser=65532
+        --set podSecurityContext.runAsGroup=65532
+        --set podSecurityContext.fsGroup=65532
